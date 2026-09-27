@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Device Clipboard</title>
+    <!-- PeerJS CDN -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0d0d0d;
+            --card-bg: #161616;
+            --neon-green: #00ff66;
+            --neon-blue: #00f0ff;
+            --text-color: #e0e0e0;
+            --border-color: #222;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0, 255, 102, 0.05);
+            box-sizing: border-box;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            color: var(--neon-green);
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px rgba(0, 255, 102, 0.3);
+        }
+
+        .panel {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #111;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+        }
+
+        .panel h2 {
+            font-size: 0.9rem;
+            color: var(--neon-blue);
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        input, textarea {
+            width: 100%;
+            background: #080808;
+            border: 1px solid #333;
+            color: var(--text-color);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: inherit;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--neon-green);
+            box-shadow: 0 0 5px rgba(0, 255, 102, 0.2);
+        }
+
+        button {
+            background: transparent;
+            color: var(--neon-green);
+            border: 1px solid var(--neon-green);
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 10px rgba(0, 255, 102, 0.5);
+        }
+
+        .status {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .status.connected {
+            color: var(--neon-green);
+        }
+
+        textarea {
+            height: 120px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>// P2P CROSS-DEVICE CLIPBOARD</h1>
+
+        <!-- Connection Panel -->
+        <div class="panel">
+            <h2>1. CONNECTION CONFIG</h2>
+            <div style="margin-bottom: 10px;">
+                Your ID: <span id="my-id" style="color: var(--neon-blue); font-weight: bold;">Generating...</span>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="target-id" placeholder="Enter target device ID...">
+                <button id="connect-btn" style="margin-top: 0;">CONNECT</button>
+            </div>
+            <div id="status" class="status">Status: Disconnected</div>
+        </div>
+
+        <!-- Clipboard Panel -->
+        <div class="panel">
+            <h2>2. LIVE CLIPBOARD SYNC</h2>
+            <p style="font-size: 0.8rem; color: #777; margin-top: 0;">Type or paste text below to instantly sync across devices.</p>
+            <textarea id="clipboard-input" placeholder="Type text here to send..."></textarea>
+            <button id="send-btn">SEND TEXT</button>
+        </div>
+    </div>
+
+    <script>
+        let peer;
+        let conn;
+        let myId = '';
+
+        // Generate a short term id (cs_xxxxxx)
+        function generateId() {
+            return 'clip_' + Math.random().toString(36).substring(2, 8);
+        }
+
+        function initPeer() {
+            myId = generateId();
+            peer = new Peer(myId);
+
+            peer.on('open', (id) => {
+                document.getElementById('my-id').innerText = id;
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+                updateStatus('Connected to peer!', true);
+            });
+        }
+
+        function setupConnection() {
+            conn.on('data', (data) => {
+                // When text arrives from the other side, press the box and copy it to the automatic copy
+                const inputArea = document.getElementById('clipboard-input');
+                inputArea.value = data;
+                
+                // If the browser has Clipboard API permission, memorize it directly
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(data).then(() => {
+                        console.log('Copied to clipboard automatically.');
+                    }).catch(err => {
+                        console.error('Failed to copy: ', err);
+                    });
+                }
+            });
+
+            conn.on('close', () => {
+                updateStatus('Connection closed.', false);
+                conn = null;
+            });
+        }
+
+        function updateStatus(text, isConnected) {
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = 'Status: ' + text;
+            if (isConnected) {
+                statusEl.classList.add('connected');
+            } else {
+                statusEl.classList.remove('connected');
+            }
+        }
+
+        // Connect Button
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            const targetId = document.getElementById('target-id').value.trim();
+            if (!targetId) return;
+
+            updateStatus('Connecting to ' + targetId + '...', false);
+            conn = peer.connect(targetId);
+
+            conn.on('open', () => {
+                setupConnection();
+                updateStatus('Connected successfully!', true);
+            });
+
+            conn.on('error', (err) => {
+                alert('Connection error: ' + err);
+                updateStatus('Connection failed.', false);
+            });
+        });
+
+        // Sending a text button
+        document.getElementById('send-btn').addEventListener('click', () => {
+            const text = document.getElementById('clipboard-input').value;
+            if (conn && conn.open) {
+                conn.send(text);
+                // Feedback with an image
+                const btn = document.getElementById('send-btn');
+                const originalText = btn.innerText;
+                btn.innerText = 'SENT!';
+                setTimeout(() => btn.innerText = originalText, 1000);
+            } else {
+                alert('No active connection! Connect to a device first.');
+            }
+        });
+
+        // Start peer asap site loaded
+        initPeer();
+    </script>
+</body>
+</html>
